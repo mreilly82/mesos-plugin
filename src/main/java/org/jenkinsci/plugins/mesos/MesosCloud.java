@@ -59,6 +59,7 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class MesosCloud extends Cloud {
   private static final String DEFAULT_DECLINE_OFFER_DURATION = "600"; // 10 mins.
@@ -658,22 +659,6 @@ public class MesosCloud extends Cloud {
       MesosSlaveInfo slaveInfoForLabel = slaveInfo.getMesosSlaveInfoForLabel(label);
       if (slaveInfoForLabel != null) {
         return slaveInfoForLabel;
-      }
-    }
-    return null;
-  }
-
-  /**
-  * Retrieves the slaveattribute corresponding to label name.
-  *
-  * @param labelName The Jenkins label name.
-  * @return slaveattribute as a JSONObject.
-  */
-
-  public JSONObject getSlaveAttributeForLabel(String labelName) {
-    for (MesosSlaveInfo slaveInfo : slaveInfos) {
-      if (StringUtils.equals(labelName, slaveInfo.getLabelString())) {
-          return slaveInfo.getSlaveAttributes();
       }
     }
     return null;

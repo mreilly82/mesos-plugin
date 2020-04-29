@@ -49,6 +49,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import static org.apache.mesos.Protos.ContainerInfo.Type.MESOS;
 import static org.apache.mesos.Protos.Image.Type.DOCKER;
@@ -625,7 +626,9 @@ public class JenkinsScheduler implements Scheduler {
         double requestedCpus = request.request.cpus;
         double requestedMem = (1 + JVM_MEM_OVERHEAD_FACTOR) * request.request.mem;
         // Get matching slave attribute for this label.
-        JSONObject slaveAttributes = getMesosCloud().getSlaveAttributeForLabel(request.request.slaveInfo.getLabelString());
+        LOGGER.info("Get slave attributes for label: " + request.request.slaveInfo.getLabelString());
+        String defaultLabel = getLabelOrDefault(request);
+        JSONObject slaveAttributes = getSlaveAttributeForLabel(defaultLabel);
 
         if (requestedCpus <= cpus
                 && requestedMem <= mem
@@ -648,6 +651,65 @@ public class JenkinsScheduler implements Scheduler {
                             "  attributes:  " + (slaveAttributes == null ? ""  : slaveAttributes.toString()));
             return false;
         }
+    }
+
+    /**
+     * Retrieves the slaveattribute corresponding to label name. In the event of a match on label names,
+     * returns attributes for slave marked as default, or singly matched label's slave attributes.
+     *
+     * @param labelName The Jenkins label name.
+     * @return slaveattribute as a JSONObject.
+     */
+
+    private JSONObject getSlaveAttributeForLabel(String labelName) {
+        LOGGER.info(String.format("Getting slave attributes for label: %s", labelName));
+        List<MesosSlaveInfo> matchedSlaves = getMesosCloud().getSlaveInfos().stream()
+                .filter(slaveInfo -> slaveInfo.getLabelString() != null && slaveInfo.getLabelString().equals(labelName))
+                .collect(Collectors.toList());
+
+        if (matchedSlaves.size() > 1) {
+            LOGGER.info(String.format("Multiple matches for label %s found, matches: %o", labelName, matchedSlaves.size()));
+            LOGGER.info("For multiple matches, checking for Slave Info marked as default");
+            return matchedSlaves.stream()
+                    .filter(MesosSlaveInfo::isDefaultSlave).collect(Collectors.toList())
+                    .stream()
+                    .findFirst()
+                    .map(MesosSlaveInfo::getSlaveAttributes)
+                    .orElse(null);
+        }
+        return matchedSlaves.stream().findFirst().map(MesosSlaveInfo::getSlaveAttributes).orElse(null);
+    }
+
+    /**
+     * Checks for label to match based upon provided label, in the event that label is not found then determine closest
+     * matching label.
+     * @param request
+     * @return label
+     */
+    private String getLabelOrDefault(Request request) {
+        String reqLabel = request.request.slaveInfo.getLabelString();
+        boolean match = getMesosCloud().getSlaveInfos().stream().anyMatch(slaveInfo -> {
+            assert slaveInfo.getLabelString() != null;
+            return slaveInfo.getLabelString().equals(reqLabel);
+        });
+
+        if (match || reqLabel == null) {
+            return reqLabel;
+        }
+
+        String trimmedLabel = reqLabel.split(":")[0];
+        List<String> sortedLabelList = getMesosCloud().getSlaveInfos()
+                .stream()
+                .map(MesosSlaveInfo::getLabelString)
+                .sorted(Collections.reverseOrder())
+                .collect(Collectors.toList());
+
+        match = sortedLabelList.stream().anyMatch(label -> label.equals(trimmedLabel));
+         if(match){
+             return trimmedLabel;
+         } else {
+            return reqLabel;
+         }
     }
 
     /**
